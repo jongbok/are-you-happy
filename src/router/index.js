@@ -10,9 +10,9 @@ Vue.use(Router);
 export default new Router({
 	mode: 'history',
 	routes: [
-		{ path: '/', name: 'main', component: Main },
+		{ path: '/:id?', name: 'main', component: Main, props: true },
 		{ path: '/help', name: 'help', component: Help},
 		{ path: '/private', name: 'private', component: PrivateInformation},
-		{ path: 'terms', name: 'terms', component: Terms}
+		{ path: '/terms', name: 'terms', component: Terms}
 	]
 });

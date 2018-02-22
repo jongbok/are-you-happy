@@ -7,10 +7,12 @@
         </md-button>
         <span class="md-title">Are you happy?</span>
         <div class="md-toolbar-section-end">
-          <md-avatar class="md-avatar-icon md-small" >
-            <md-icon>account_circle</md-icon>
-            <!-- <img src="/assets/logo.png" > -->
-          </md-avatar>
+          <md-button @click="signIn" >
+            <md-avatar class="md-avatar-icon md-small" >
+              <img v-if="isAuth" :src="photoURL" >
+              <md-icon v-else >account_circle</md-icon>
+            </md-avatar>
+          </md-button>
         </div>
       </md-app-toolbar>
 
@@ -47,18 +49,48 @@
 </template>
 
 <script>
-export default {
-  name: 'App',
-  data(){
-    return { menuVisible: false };
-  },
-  methods: {
-    goto(path){
-      this.$router.push(path);
-      this.menuVisible = false;
+  import firebase from 'firebase';
+  import {auth} from '@/helpers/FirebaseHelper';
+  import provider from '@/helpers/AuthProviderHelper';
+
+  export default {
+    name: 'App',
+    data(){
+      return { 
+        menuVisible: false,
+        isAuth: false,
+        photoURL: null
+      };
+    },
+    methods: {
+      goto(path){
+        this.$router.push(path);
+        this.menuVisible = false;
+      },
+      signIn(){
+        if(auth.currentUser){
+          auth.signOut().then(() => {
+            this.$session.destroy();
+            console.log('sign-out successful!')
+          });
+        }else{
+          auth.signInWithPopup(provider).then((result) => {
+            this.$session.start();
+            this.$session.set('credential', result.credential);
+            console.log('sign-in successful!');
+          });
+        }
+      }      
+    },
+    created(){
+      auth.onAuthStateChanged(user  => {
+        this.isAuth = !!user;
+        if(user){
+          this.photoURL = user.photoURL;
+        }
+      });
     }
-  }
-};
+  };
 </script>
 
 <style>
