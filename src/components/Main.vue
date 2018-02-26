@@ -9,33 +9,12 @@
 		<md-card>
 			<md-card-media>
 				<swiper :options="swiperOption" >
-					<swiper-slide>
+					<swiper-slide v-for="(def, key) in slides" :key="def.title" >
 						<p class="md-title">
 							<md-icon>keyboard_arrow_right</md-icon>
-							2018년의 행복이란?
+							{{def.title}}의 행복이란?
 						</p>
-						<div>가족(40%) + 돈(30%) + 친구(20%) + 기타(10%)</div>
-					</swiper-slide>
-					<swiper-slide>
-						<div>Slide 2</div>
-					</swiper-slide>
-					<swiper-slide>
-						<div>Slide 3</div>
-					</swiper-slide>
-					<swiper-slide>
-						<div>Slide 4</div>
-					</swiper-slide>
-					<swiper-slide>
-						<div>Slide 5</div>
-					</swiper-slide>
-					<swiper-slide>
-						<div>Slide 6</div>
-					</swiper-slide>
-					<swiper-slide>
-						<div>Slide 7</div>
-					</swiper-slide>
-					<swiper-slide>
-						<div>Slide 8</div>
+						<div>{{def.content}}</div>
 					</swiper-slide>
 					<div class="swiper-button-prev" slot="button-prev" ></div>
 					<div class="swiper-button-next" slot="button-next" ></div>
@@ -80,9 +59,29 @@
 
 <script>
 	import {db, auth} from '@/helpers/FirebaseHelper';
-	import _ from 'lodash';
+	import Definition from '@/helpers/Definition';
 
-	const leftPad = v => v > 9 ? v.toString(): `0${v}`;
+	const leftPad = v => v > 9 ? v.toString(): `0${v}`,
+		getTitle = (year, month, sex, age) => {
+			let title = `${year}년도`;
+			month && (title += ` ${month}월`);
+			age && (title += age === 60 ? ' 60대 이상': ` ${age}대`);
+			sex && (title += sex === 'M'? ' 남성': ' 여성');
+
+			return title;
+		},
+		mapToSlide = function(ref){
+
+			return ({path, title}) => {
+				
+				ref.doc(path)
+					.onSnapshot(doc => {
+						if(doc && doc.exists){
+							this[path] = new Definition(title, doc.data());
+						}
+					});
+			}
+		};
 
 	export default {
 		props: {
@@ -95,6 +94,7 @@
 			return {
 				selectedWord: null,
 				words: [],
+				slides: {},
 				summary: {},
 				user: null,
 				swiperOption: {
@@ -116,10 +116,20 @@
 
 			const today = new Date(),
 				year = today.getFullYear(),
-				month = today.getMonth() + 1,
-				path = year + leftPad(month),
+				month = leftPad(today.getMonth() + 1),
 				credential = this.$session.get('credential'),
-				summariesRef = db.collection('words').doc(this.id).collection('summaries');
+				summariesRef = db.collection('words').doc(this.id).collection('summaries'),
+				pathes = [],
+				fnMapToSlide = mapToSlide.call(this.slides, summariesRef);		
+			
+			[
+				{path: `${year}`, title: getTitle(year)},
+				{path: `${year}M`, title: getTitle(year, null, 'M')},
+				{path: `${year}F`, title: getTitle(year, null, 'F')},
+				{path: `${year}${month}`, title: getTitle(year, month)},
+				{path: `${year}${month}M`, title: getTitle(year, month, 'M')},
+				{path: `${year}${month}F`, title: getTitle(year, month, 'F')},
+			].forEach(fnMapToSlide);
 
 			auth.onAuthStateChanged(user  => {	
 				if(!user){
@@ -131,7 +141,6 @@
 	              fields: 'email,name,gender,location,birthday',
 	              access_token: credential.accessToken
 	            }, result => {
-	            	console.dir(result);
 	                const birthday = new Date(result.birthday),
 	                  today = new Date(),
 	                  age = today.getFullYear() - birthday.getFullYear(),
@@ -139,20 +148,31 @@
 	                this.user = { 
 	                  	name: result.name,
 	                  	email: result.email,
-	                  	sex, 
-	                  	age
+	                  	sex,
+	                  	age: Math.floor(age/10) * 10
 	                  };
 
-	                console.dir(result);
+	                [
+	                	{
+	                		path: `${year}${this.user.sex}${this.user.age}`,
+	                		title: getTitle(year, null, this.user.sex, this.user.age)
+	                	},
+	                	{
+	                		path: `${year}${month}${this.user.sex}${this.user.age}`,
+	                		title: getTitle(year, month, this.user.sex, this.user.age)
+	                	}
+	                ].forEach(fnMapToSlide);
 	            });            
 			});
 
-			summariesRef.doc(path)
+			summariesRef.doc(`${year}${month}`)
 				.onSnapshot(doc => {
 					if(doc && doc.exists){
 						this.summary = doc.data();
 					}
 				});
+
+
 
 		}
 	};
