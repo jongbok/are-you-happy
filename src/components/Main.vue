@@ -1,18 +1,18 @@
 <template>
 	<div>
 		<md-content>
-			<md-autocomplete v-model="selectedWord" :md-options="words" :md-open-on-focus="true" md-layout="box" md-dense >
+			<md-autocomplete v-model="selectedWord" :md-options="words" :md-open-on-focus="true" md-layout="box" @md-changed="href" md-dense >
 				<label>주제를 검색 하세요!</label>
 			</md-autocomplete>
 		</md-content>
 
 		<md-card>
 			<md-card-media>
-				<swiper :options="swiperOption" >
-					<swiper-slide v-for="(def, key) in slides" :key="def.title" >
+				<swiper :options="swiperOption" ref="swiper" >
+					<swiper-slide v-for="(def, key) in slides" :key="def.title" :id="key" >
 						<p class="md-title">
 							<md-icon>keyboard_arrow_right</md-icon>
-							{{def.title}}의 행복이란?
+							{{def.title}}의 {{subject}}이란?
 						</p>
 						<div>{{def.content}}</div>
 					</swiper-slide>
@@ -21,7 +21,7 @@
 				</swiper>
 			</md-card-media>
 			<md-card-actions>
-				<md-button class="md-raised md-icon-button" >
+				<md-button class="md-raised md-icon-button" @click="share" >
 					<md-icon>share</md-icon>
 				</md-button>
 			</md-card-actions>
@@ -31,8 +31,8 @@
 			<md-card-header>
 				<div class="md-title" >
 					<md-icon>keyboard_arrow_right</md-icon>
-					<span v-if="user" >{{user.name}}님의 행복이란?</span>
-					<span v-else>당신의 행복이란?</span>
+					<span v-if="user" >{{user.name}}님의 {{subject}}이란?</span>
+					<span v-else>당신의 {{subject}}이란?</span>
 				</div>
 			</md-card-header>
 			<md-card-content id="list" class="md-scrollbar" >
@@ -54,12 +54,18 @@
 				</md-field>
 			</div>
 		</md-card>
+
+		<md-snackbar :md-position="snackbar.position" :md-duration="snackbar.duration" :md-active.sync="snackbar.show" md-persistent>
+		    <span>Facebook에 게시되었습니다.</span>
+		    <md-button class="md-primary" @click="snackbar.show = false">Retry</md-button>
+		</md-snackbar>		
 	</div>
 </template>
 
 <script>
 	import {db, auth} from '@/helpers/FirebaseHelper';
 	import Definition from '@/helpers/Definition';
+	import hash from 'string-hash';
 
 	const leftPad = v => v > 9 ? v.toString(): `0${v}`,
 		getTitle = (year, month, sex, age) => {
@@ -92,6 +98,7 @@
 		},
 		data(){
 			return {
+				subject: '행복',
 				selectedWord: null,
 				words: [],
 				slides: {},
@@ -105,8 +112,42 @@
 						nextEl: '.swiper-button-next',
 						prevEl: '.swiper-button-prev'
 					}
+				},
+				snackbar: {
+					show: false,
+    				position: 'center',
+    				duration: 4000,
+    				isInfinity: false					
 				}
 			};
+		},
+		methods: {
+			href(){
+				this.$router.replace(`/${hash(this.selectedWord)}`);
+			},
+			share(){
+				const slides = this.$refs.swiper.swiper.slides,
+					i = this.$refs.swiper.swiper.activeIndex,
+					credential = this.$session.get('credential'),
+					id = slides[i].id,
+					current = this.slides[id],
+					text = `${current.title}의 ${this.subject} = ${current.content}`;
+
+				FB.api('/me/feed', 
+					'post', 
+					{
+						access_token: credential.accessToken,
+						message: text, 
+						link: 'http://blog.naver.com/asdkf20' 
+					}, 
+					result => {
+						this.snackbar.show = true
+					});
+			}
+		},
+		updated(){
+			db.collection('words').doc(this.id).get()
+				.then(doc => doc.exists && (this.subject = doc.data().name));
 		},
 		created(){
 			db.collection('words').orderBy('name')
@@ -119,7 +160,6 @@
 				month = leftPad(today.getMonth() + 1),
 				credential = this.$session.get('credential'),
 				summariesRef = db.collection('words').doc(this.id).collection('summaries'),
-				pathes = [],
 				fnMapToSlide = mapToSlide.call(this.slides, summariesRef);		
 			
 			[
@@ -154,12 +194,12 @@
 
 	                [
 	                	{
-	                		path: `${year}${this.user.sex}${this.user.age}`,
-	                		title: getTitle(year, null, this.user.sex, this.user.age)
+	                		path: `${year}${sex}${age}`,
+	                		title: getTitle(year, null, sex, age)
 	                	},
 	                	{
-	                		path: `${year}${month}${this.user.sex}${this.user.age}`,
-	                		title: getTitle(year, month, this.user.sex, this.user.age)
+	                		path: `${year}${month}${sex}${age}`,
+	                		title: getTitle(year, month, sex, age)
 	                	}
 	                ].forEach(fnMapToSlide);
 	            });            
@@ -171,8 +211,6 @@
 						this.summary = doc.data();
 					}
 				});
-
-
 
 		}
 	};
