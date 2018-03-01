@@ -21,7 +21,7 @@
 				</swiper>
 			</md-card-media>
 			<md-card-actions>
-				<md-button class="md-raised md-icon-button" @click="share" >
+				<md-button class="md-raised md-icon-button" @click.stop="share" >
 					<md-icon>share</md-icon>
 				</md-button>
 			</md-card-actions>
@@ -36,28 +36,30 @@
 				</div>
 			</md-card-header>
 			<md-card-content id="list" class="md-scrollbar" >
-				<md-list>
+				<md-list v-if="isNotEmpty" >
 					<md-list-item v-for="(value, key) in summary" :key="key" >
 						<div class="md-list-item-text" >
 							<span>{{key}} <span class="md-caption" >{{value}}</span></span>
 						</div>
-						<md-button class="md-raised md-icon-button md-list-action" disabled>
+						<md-button class="md-raised md-icon-button md-list-action" :disabled="disabled(key)">
 							<md-icon class="md-primary">star</md-icon>
 						</md-button>
 					</md-list-item>
 				</md-list>
+				<span class="md-body-2" v-else >
+					등록된 키워드가 없습니다.
+				</span>
 			</md-card-content>
 			<div>
 				<md-field>
-					<md-input placeholder="공감가는 키워드가 없다면 등록해 주세요!" ></md-input>
-					<md-button class="md-raised md-primary" >등록</md-button>
+					<md-input placeholder="공감가는 키워드가 없다면 등록해 주세요!" v-model="keyword" @keydown.enter="save" ></md-input>
+					<md-button class="md-raised md-primary" @click.stop="save" >등록</md-button>
 				</md-field>
 			</div>
 		</md-card>
 
-		<md-snackbar :md-position="snackbar.position" :md-duration="snackbar.duration" :md-active.sync="snackbar.show" md-persistent>
-		    <span>Facebook에 게시되었습니다.</span>
-		    <md-button class="md-primary" @click="snackbar.show = false">Retry</md-button>
+		<md-snackbar :md-position="snackbar.position" ref="keyword" :md-duration="snackbar.duration" :md-active.sync="snackbar.show" md-persistent>
+		    <span>{{snackbar.message}}</span>
 		</md-snackbar>		
 	</div>
 </template>
@@ -100,10 +102,12 @@
 			return {
 				subject: '행복',
 				selectedWord: null,
+				votedElement: null,
 				words: [],
 				slides: {},
 				summary: {},
 				user: null,
+				keyword: '',
 				swiperOption: {
 					slidesPerView: 1,
 					spaceBetween: 30,
@@ -117,7 +121,8 @@
 					show: false,
     				position: 'center',
     				duration: 4000,
-    				isInfinity: false					
+    				isInfinity: false,
+    				message: ''
 				}
 			};
 		},
@@ -141,13 +146,78 @@
 						link: 'http://blog.naver.com/asdkf20' 
 					}, 
 					result => {
-						this.snackbar.show = true
+						this.alert('Facebook에 게시되었습니다.');
+					});
+			},
+			disabled(element){
+				return this.votedElement && this.votedElement === element;
+			},
+			alert(message){
+				this.snackbar.message = message;
+				this.snackbar.show = true;
+			},
+			save(){
+				const reg = /[\r\n\t\s!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/;
+				if(reg.test(this.keyword)){
+					this.alert('공백 및 특수문자는 사용할 수 없습니다.');
+					this.$refs.keyword.$el.focus();
+					return;
+				}
+				if(!this.keyword){
+					this.alert('1글자 이상 입력해 주세요!');
+					this.$refs.keyword.$el.focus();
+					return;
+				}
+				if(this.keyword.length > 10){
+					this.alert('10글자 이상 입력할 수 없습니다.');
+					this.$refs.keyword.$el.focus();
+					return;
+				}
+
+				db.collection('words').doc(this.id).collection('votes')
+					.add({
+						email: this.user.email,
+						element: this.keyword,
+						sex: this.user.sex,
+						age: this.user.age
+					})
+					.then(result => {
+						this.alert('등록되었습니다.');
+						this.keyword = '';
+					})
+					.catch(error => {
+						console.error(error);
+						this.alert('키워드 등록에 실패했습니다.');
 					});
 			}
 		},
+		computed: {
+			isNotEmpty: () => {
+				if(!this.summary){
+					return false;
+				}
+				const keys = Object.keys(this.summary);
+				return !!keys.length;
+			}
+		},
 		updated(){
-			db.collection('words').doc(this.id).get()
-				.then(doc => doc.exists && (this.subject = doc.data().name));
+			const currentWordRef = db.collection('words').doc(this.id);
+			currentWordRef.get().then(doc => doc.exists && (this.subject = doc.data().name));
+			if(this.user){
+				currentWordRef.collection('votes').where('email', '==', this.user.email)	
+					.orderBy('createdBy', 'desc').limit(1)
+					.get().then(votes => {
+						if(votes.docs.length){
+							const vote = votes.docs[0].data(),
+								now = new Date(),
+								gap = now.getTime() - vote.createdBy.getTime();
+							this.votedElement = (gap > (1000 * 60 * 60 * 12)) ? vote.element: null;
+						}else{
+							this.votedElement = null;
+						}
+					});
+			}
+			
 		},
 		created(){
 			db.collection('words').orderBy('name')
@@ -158,7 +228,6 @@
 			const today = new Date(),
 				year = today.getFullYear(),
 				month = leftPad(today.getMonth() + 1),
-				credential = this.$session.get('credential'),
 				summariesRef = db.collection('words').doc(this.id).collection('summaries'),
 				fnMapToSlide = mapToSlide.call(this.slides, summariesRef);		
 			
@@ -177,6 +246,7 @@
 					return;
 				}
 
+				const credential = this.$session.get('credential');
 	            return FB.api('/me', {
 	              fields: 'email,name,gender,location,birthday',
 	              access_token: credential.accessToken
