@@ -36,7 +36,7 @@
 				</div>
 			</md-card-header>
 			<md-card-content id="list" class="md-scrollbar" >
-				<md-list v-if="isNotEmpty" >
+				<md-list v-if="isNotEmpty" key="summary_exists" >
 					<md-list-item v-for="(value, key) in summary" :key="key" >
 						<div class="md-list-item-text" >
 							<span>{{key}} <span class="md-caption" >{{value}}</span></span>
@@ -46,25 +46,26 @@
 						</md-button>
 					</md-list-item>
 				</md-list>
-				<span class="md-body-2" v-else >
+				<span class="md-body-2" v-else key="summary_empty" >
 					등록된 키워드가 없습니다.
 				</span>
 			</md-card-content>
 			<div>
 				<md-field>
-					<md-input placeholder="공감가는 키워드가 없다면 등록해 주세요!" v-model="keyword" @keydown.enter="save" ></md-input>
+					<md-input placeholder="공감가는 키워드가 없다면 등록해 주세요!" v-model="keyword" @keydown.enter="save" ref="keyword" ></md-input>
 					<md-button class="md-raised md-primary" @click.stop="save" >등록</md-button>
 				</md-field>
 			</div>
 		</md-card>
 
-		<md-snackbar :md-position="snackbar.position" ref="keyword" :md-duration="snackbar.duration" :md-active.sync="snackbar.show" md-persistent>
+		<md-snackbar :md-position="snackbar.position" :md-duration="snackbar.duration" :md-active.sync="snackbar.show" md-persistent>
 		    <span>{{snackbar.message}}</span>
 		</md-snackbar>		
 	</div>
 </template>
 
 <script>
+	import Vue from 'vue';
 	import {db, auth} from '@/helpers/FirebaseHelper';
 	import Definition from '@/helpers/Definition';
 	import hash from 'string-hash';
@@ -108,6 +109,7 @@
 				summary: {},
 				user: null,
 				keyword: '',
+				isNotEmpty: false,
 				swiperOption: {
 					slidesPerView: 1,
 					spaceBetween: 30,
@@ -191,33 +193,19 @@
 					});
 			}
 		},
-		computed: {
-			isNotEmpty: () => {
-				if(!this.summary){
-					return false;
+		watch: {
+			summary(val){
+				if(!val){
+					Vue.set(this, 'isNotEmpty', false);
+				}else{
+					const keys = Object.keys(val);
+					Vue.set(this, 'isNotEmpty', !!keys.length);
 				}
-				const keys = Object.keys(this.summary);
-				return !!keys.length;
 			}
 		},
 		updated(){
-			const currentWordRef = db.collection('words').doc(this.id);
-			currentWordRef.get().then(doc => doc.exists && (this.subject = doc.data().name));
-			if(this.user){
-				currentWordRef.collection('votes').where('email', '==', this.user.email)	
-					.orderBy('createdBy', 'desc').limit(1)
-					.get().then(votes => {
-						if(votes.docs.length){
-							const vote = votes.docs[0].data(),
-								now = new Date(),
-								gap = now.getTime() - vote.createdBy.getTime();
-							this.votedElement = (gap > (1000 * 60 * 60 * 12)) ? vote.element: null;
-						}else{
-							this.votedElement = null;
-						}
-					});
-			}
-			
+			db.collection('words').doc(this.id)
+				.get().then(doc => doc.exists && (this.subject = doc.data().name));
 		},
 		created(){
 			db.collection('words').orderBy('name')
@@ -272,6 +260,20 @@
 	                		title: getTitle(year, month, sex, age)
 	                	}
 	                ].forEach(fnMapToSlide);
+
+					db.collection('words').doc(this.id)
+						.collection('votes').where('email', '==', this.user.email)	
+						.orderBy('createdBy', 'desc').limit(1)
+						.get().then(votes => {
+							if(votes.docs.length){
+								const vote = votes.docs[0].data(),
+									now = new Date(),
+									gap = now.getTime() - vote.createdBy.getTime();
+								this.votedElement = (gap > (1000 * 60 * 60 * 12)) ? vote.element: null;
+							}else{
+								this.votedElement = null;
+							}
+						});	                
 	            });            
 			});
 
@@ -279,6 +281,7 @@
 				.onSnapshot(doc => {
 					if(doc && doc.exists){
 						this.summary = doc.data();
+						console.dir(this.summary);
 					}
 				});
 
