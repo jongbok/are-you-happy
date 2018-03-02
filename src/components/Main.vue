@@ -41,7 +41,7 @@
 						<div class="md-list-item-text" >
 							<span>{{key}} <span class="md-caption" >{{value}}</span></span>
 						</div>
-						<md-button class="md-raised md-icon-button md-list-action" :disabled="disabled(key)">
+						<md-button class="md-raised md-icon-button md-list-action" :disabled="disabled(key)" @click="vote(key)" >
 							<md-icon class="md-primary">star</md-icon>
 						</md-button>
 					</md-list-item>
@@ -140,8 +140,7 @@
 					current = this.slides[id],
 					text = `${current.title}의 ${this.subject} = ${current.content}`;
 
-				FB.api('/me/feed', 
-					'post', 
+				FB.api('/me/feed', 'post', 
 					{
 						access_token: credential.accessToken,
 						message: text, 
@@ -158,10 +157,23 @@
 				this.snackbar.message = message;
 				this.snackbar.show = true;
 			},
+			vote(element){
+				db.collection('words').doc(this.id).collection('votes')
+					.add({
+						email: this.user.email,
+						element: element,
+						sex: this.user.sex,
+						age: this.user.age
+					})
+					.catch(error => {
+						console.error(error);
+						this.alert('오류가 발생하였습니다.');
+					});
+			},
 			save(){
 				const reg = /[\r\n\t\s!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/;
 				if(reg.test(this.keyword)){
-					this.alert('공백 및 특수문자는 사용할 수 없습니다.');
+					this.alert('공백 및 특수문자는 입력할 수 없습니다.');
 					this.$refs.keyword.$el.focus();
 					return;
 				}
@@ -264,16 +276,14 @@
 					db.collection('words').doc(this.id)
 						.collection('votes').where('email', '==', this.user.email)	
 						.orderBy('createdBy', 'desc').limit(1)
-						.get().then(votes => {
+						.onSnapshot(votes => {
 							if(votes.docs.length){
-								const vote = votes.docs[0].data(),
-									now = new Date(),
-									gap = now.getTime() - vote.createdBy.getTime();
-								this.votedElement = (gap > (1000 * 60 * 60 * 12)) ? vote.element: null;
+								const vote = votes.docs[0].data()
+								this.votedElement = vote.element;
 							}else{
 								this.votedElement = null;
 							}
-						});	                
+						});
 	            });            
 			});
 
@@ -281,7 +291,6 @@
 				.onSnapshot(doc => {
 					if(doc && doc.exists){
 						this.summary = doc.data();
-						console.dir(this.summary);
 					}
 				});
 
