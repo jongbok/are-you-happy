@@ -8,20 +8,25 @@
 
 		<md-card>
 			<md-card-media>
-				<swiper :options="swiperOption" ref="swiper" >
-					<swiper-slide v-for="(def, key) in slides" :key="def.title" :id="key" >
+				<swiper v-if="slides.length" :options="swiperOption" ref="swiper" >
+					<swiper-slide v-for="slide in slides" :key="slide.title" :id="slide.id" >
 						<p class="md-title">
 							<md-icon>keyboard_arrow_right</md-icon>
-							{{def.title}}의 {{subject}}이란?
+							{{slide.title}}의 {{subject}}이란?
 						</p>
-						<div>{{def.content}}</div>
+						<div>{{slide.content}}</div>
 					</swiper-slide>
 					<div class="swiper-button-prev" slot="button-prev" ></div>
 					<div class="swiper-button-next" slot="button-next" ></div>
 				</swiper>
+				<div v-else >
+					<p class="md-title">
+						"{{subject}}"에 대한 공감키워드가 존재하지 않습니다.
+					</p>
+				</div>
 			</md-card-media>
 			<md-card-actions>
-				<md-button class="md-raised md-icon-button" @click.stop="share" >
+				<md-button class="md-raised md-icon-button" @click.stop="share" :disabled="!slides.length" >
 					<md-icon>share</md-icon>
 				</md-button>
 			</md-card-actions>
@@ -69,7 +74,9 @@
 	import {db, auth} from '@/helpers/FirebaseHelper';
 	import Definition from '@/helpers/Definition';
 	import hash from 'string-hash';
+	import _ from 'lodash';
 
+	let subscriptions = [];
 	const leftPad = v => v > 9 ? v.toString(): `0${v}`,
 		getTitle = (year, month, sex, age) => {
 			let title = `${year}년도`;
@@ -83,13 +90,56 @@
 
 			return ({path, title}) => {
 				
-				ref.doc(path)
+				return ref.doc(path)
 					.onSnapshot(doc => {
 						if(doc && doc.exists){
-							this[path] = new Definition(title, doc.data());
+							this.push(new Definition(path, title, doc.data()));
 						}
 					});
 			}
+		},
+		makeSubscription = function(id){
+			this.slides.length = 0;
+
+			const today = new Date(),
+				year = today.getFullYear(),
+				month = leftPad(today.getMonth() + 1),
+				summariesRef = db.collection('words').doc(id).collection('summaries'),
+				fnMapToSlide = mapToSlide.call(this.slides, summariesRef),
+				paths = [
+					{path: `${year}`, title: getTitle(year)},
+					{path: `${year}M`, title: getTitle(year, null, 'M')},
+					{path: `${year}F`, title: getTitle(year, null, 'F')},
+					{path: `${year}${month}`, title: getTitle(year, month)},
+					{path: `${year}${month}M`, title: getTitle(year, month, 'M')},
+					{path: `${year}${month}F`, title: getTitle(year, month, 'F')},
+				];
+
+			if(this.user){
+				paths.push({ path: `${year}${this.user.sex}${this.user.age}`, title: getTitle(year, null, this.user.sex, this.user.age) });
+				paths.push({ path: `${year}${month}${this.user.sex}${this.user.age}`, title: getTitle(year, month, this.user.sex, this.user.age) });
+			
+				db.collection('words').doc(id)
+					.collection('votes').where('email', '==', this.user.email)
+					.orderBy('createdBy', 'desc').limit(1)
+					.onSnapshot(votes => {
+						if(votes.docs.length){
+							const vote = votes.docs[0].data()
+							this.votedElement = vote.element;
+						}else{
+							this.votedElement = null;
+						}
+					});
+			}
+
+			subscriptions.length && (subscriptions.forEach(f => f()));
+			subscriptions = paths.map(fnMapToSlide);
+			summariesRef.doc(`${year}`)
+				.onSnapshot(doc => {
+					if(doc && doc.exists){
+						this.summary = doc.data();
+					}
+				});				
 		};
 
 	export default {
@@ -105,7 +155,7 @@
 				selectedWord: null,
 				votedElement: null,
 				words: [],
-				slides: {},
+				slides: [],
 				summary: {},
 				user: null,
 				keyword: '',
@@ -137,7 +187,7 @@
 					i = this.$refs.swiper.swiper.activeIndex,
 					credential = this.$session.get('credential'),
 					id = slides[i].id,
-					current = this.slides[id],
+					current = _.find(this.slides, {id}),
 					text = `${current.title}의 ${this.subject} = ${current.content}`;
 
 				FB.api('/me/feed', 'post', 
@@ -219,30 +269,22 @@
 			db.collection('words').doc(this.id)
 				.get().then(doc => doc.exists && (this.subject = doc.data().name));
 		},
+		beforeRouteUpdate(to, from, next){
+			console.log(this.id);
+			console.log('route', to, from);
+			makeSubscription.call(this, to.params.id);
+			next();
+		},
 		created(){
 			db.collection('words').orderBy('name')
 				.onSnapshot(snapshot => {
 					this.words = snapshot.docs.map(doc => doc.get('name'));
 				});
 
-			const today = new Date(),
-				year = today.getFullYear(),
-				month = leftPad(today.getMonth() + 1),
-				summariesRef = db.collection('words').doc(this.id).collection('summaries'),
-				fnMapToSlide = mapToSlide.call(this.slides, summariesRef);		
-			
-			[
-				{path: `${year}`, title: getTitle(year)},
-				{path: `${year}M`, title: getTitle(year, null, 'M')},
-				{path: `${year}F`, title: getTitle(year, null, 'F')},
-				{path: `${year}${month}`, title: getTitle(year, month)},
-				{path: `${year}${month}M`, title: getTitle(year, month, 'M')},
-				{path: `${year}${month}F`, title: getTitle(year, month, 'F')},
-			].forEach(fnMapToSlide);
-
 			auth.onAuthStateChanged(user  => {	
 				if(!user){
 					this.user = null;
+					makeSubscription.call(this, this.id);
 					return;
 				}
 
@@ -262,37 +304,10 @@
 	                  	age: Math.floor(age/10) * 10
 	                  };
 
-	                [
-	                	{
-	                		path: `${year}${sex}${age}`,
-	                		title: getTitle(year, null, sex, age)
-	                	},
-	                	{
-	                		path: `${year}${month}${sex}${age}`,
-	                		title: getTitle(year, month, sex, age)
-	                	}
-	                ].forEach(fnMapToSlide);
+	                  makeSubscription.call(this, this.id);
 
-					db.collection('words').doc(this.id)
-						.collection('votes').where('email', '==', this.user.email)	
-						.orderBy('createdBy', 'desc').limit(1)
-						.onSnapshot(votes => {
-							if(votes.docs.length){
-								const vote = votes.docs[0].data()
-								this.votedElement = vote.element;
-							}else{
-								this.votedElement = null;
-							}
-						});
 	            });            
 			});
-
-			summariesRef.doc(`${year}${month}`)
-				.onSnapshot(doc => {
-					if(doc && doc.exists){
-						this.summary = doc.data();
-					}
-				});
 
 		}
 	};

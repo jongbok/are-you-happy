@@ -7,14 +7,15 @@ map[Symbol.iterator] = function* () {
 
 class Definition {
 
-	constructor(title, summary){
+	constructor(id, title, summary){
+		this.id = id;
 		this.title = title;
 		const keys = _.keys(summary);
 		keys.forEach(key => map.set(key, summary[key]));
 	}
 
 	get content(){
-		const total = _.sumBy([...map], m => m[1]),
+		const total = _.sumBy([...map], m => m[1] || 0),
 			rets = [];
 		let percent,
 			accrue = 0;
@@ -24,7 +25,7 @@ class Definition {
 		}
 
 		for(let [key, value] of map){
-			percent = Math.floor(value/total*100);
+			percent = value ? Math.floor(value/total*100): 0;
 			accrue += percent;
 			rets.push(`${key}(${percent}%)`);
 			if(rets.length > 4) 
